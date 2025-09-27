@@ -1,0 +1,616 @@
+---
+title: "Trends in Agricultural Land Valuation in Ontario"
+author: "Ailing Liu 1008835067 Jiayi Zhu 1009332508"
+date: "2025-03-23"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+```{r,message=FALSE, warning=FALSE,echo=FALSE}
+library(readxl)
+library(tidyverse)
+library(dplyr)
+library(tibble)
+library(ggplot2)
+```
+# 1. Data Processing
+```{r,echo=FALSE}
+df <- read.csv("C:/Users/Liu Ailing/Desktop/utsc/thrid year/staa57/new_data_set.csv")
+```
+The dataset used in this study comes from the Ontario government's Open Data 
+Platform, and the data is compiled and published by the Canadian Census of 
+Agriculture (Census of Agriculture), which records statistical information on 
+farmland valuation and leasing in Ontario counties, cities, towns, and regions 
+in different years (every five years).  
+
+We screened five Ontario regions from the original dataset, and group by "Southern
+Ontario Region", "Western Ontario Region", "Eastern Ontario Region", "Central 
+Ontario Region", and "Northern Ontario Region", which represent the main 
+agro-geographical divisions of the province, and subsequent analyses will be based
+on these regions.
+```{r,echo=FALSE}
+df_region = df %>% filter(Geography %in% c("Southern Ontario Region",
+                                           "Western Ontario Region",
+                                           "Eastern Ontario Region",
+                                           "Central Ontario Region",
+                                           "Northern Ontario Region"))
+```
+Then, we pre-processed the data types: ‘Geography’ and ‘Year’ were set as categorical 
+variables, as they denote areas and years and are not suitable to participate in
+mathematical calculations as continuous values. The variables ‘est_value_land’, 
+‘total_area’, ‘area_rented’, ‘est_rental_rate’, ‘ratio_rate’ were converted to 
+numeric varibles to ensure that subsequent regression, graphing and statistical 
+analysis.
+```{r,echo=FALSE}
+categorical_vars <- c("Geography","Year")
+df_region[categorical_vars] <- lapply(df_region[categorical_vars], as.factor)
+numerical_vars <- c("est_value_land","total_area","area_rented","est_rental_rate",
+                    "ratio_rate")
+df_region[numerical_vars] <- lapply(df_region[numerical_vars],as.numeric)
+
+
+
+```
+
+# 2. Description of the Variables
+
+The dataset contains the following main variables:
+
+- **Geography** *(categorical)*: Indicates the geographic region for which the observations are made, such as *Southern Ontario Region*, *Western Ontario Region*, etc.
+
+- **Year** *(categorical)*: Indicates the year of observation, including 1991, 1996, 2001, 2006, 2011, 2016, and 2021.
+
+- **est_value_land** *(numeric)*: Estimated market value of farmland per acre (in C$/acre), which reflects the market price level of farmland in the region.
+
+- **total_area** *(numeric)*: Total acreage of farmland in the area (in acres), including both rented and unrented portions--an indicator of the size of agricultural land.
+
+- **area_rented** *(numeric)*: Area of total arable land that is rented (in acres)--reflects the level of active agricultural land rental activity.
+
+- **est_rental_rate** *(numeric)*: Estimated average rental price (in Canadian dollars per acre)--reflects the level of market rents for leased cropland in the area.
+
+- **ratio_rate** *(numeric)*: The ratio of rent to land valuation, calculated as `est_rental_rate / est_value_land`-- measures the rate of return or efficiency of land leasing.
+
+
+The above variables constitute the core data source for the subsequent analysis of this study, with est_value_land being the response variable we focus on and the rest of the variables used as explanatory variables for regression modelling 
+and analysis.
+
+\begin{center}
+\textbf{Table 1: The head of data set}
+\end{center}
+
+```{r,echo=FALSE,warning=FALSE,out.width="80%"}
+library(knitr)
+kable(head(df_region))
+```
+As shown in the table 1, each year in the dataset contains five observations corresponding to each of the five Ontario regions. This distribution indicates that the data are perfectly balanced __in the temporal dimension__, which helps 
+us to analyse the effect of temporal trends on variables such as land valuation without worrying about uneven year sample sizes. __In the spatial dimension__, the number of observations in the five geographic regions is also identical (see Table 2), suggesting that the data are very well structured and suitable for regional comparisons and trend modelling.
+
+\begin{center}
+\textbf{Table 2: The levels of Categorical Variables}
+\end{center}
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE}
+library(dplyr)
+
+d_G <- df_region %>%
+  count(Geography, name = "N_G") %>%
+  mutate(row_id = row_number())
+
+d_Y <- df_region %>%
+  count(Year, name = "N_Y") %>%
+  mutate(row_id = row_number())
+
+d_combined <- full_join(d_G, d_Y, by = "row_id") %>%
+  select(-row_id)
+
+d_combined_clean <- d_combined %>%
+  mutate(N_G = ifelse(is.na(N_G), "", N_G),
+    Geography = ifelse(is.na(Geography), "", as.character(Geography)),
+    Year = ifelse(is.na(Year), "", as.character(Year))
+  )
+
+
+
+kable(d_combined_clean)
+```
+The Table 3 below summarises the overall averages of the five core variables when combined across the five regions and seven time points. These variables include:estimated land value (est_value_land), total_area, area_rented, estimated rental
+rate (est_rental_rate), and the ratio of rent to land value (ratio_rate). By averaging these variables, we can get an overall picture of the concentration trend of the sample data, which provides a basis for subsequent regression modelling and regional comparisons.
+
+\pagebreak
+
+\begin{center}
+\textbf{Table 3: Mean of each Numerical Variables}
+\end{center}
+
+```{r,echo=FALSE,message=FALSE,out.width="80%"}
+# Calculate Mean of each Numerical Variables
+d = df_region %>% 
+  summarise(Mean_Est.val_land = mean(est_value_land),
+            Mean_Total_area = mean(total_area),
+            Mean_Area_rented = mean(area_rented),
+            Mean_Est.rental_rate = mean(est_rental_rate),
+            Mean_Ratio_of_rental_rate = mean(ratio_rate))
+
+kable(d)
+```
+Table 4 shows the standard deviations of the five numeric variables in the dataset, from which the degree of fluctuation of the variables under the regional and year dimensions can be seen. Among them, the standard deviation of est_value_land is about 4362, showing that it varies somewhat across regions, while the standard deviations of total_area and area_rented are as high as 400,000, indicating that the scale of agricultural land varies significantly across regions.
+
+The standard deviation of the rent rate (est_rental_rate) is 72, which shows the variability of rent between regions, while the standard deviation of the rent/valuation ratio (ratio_rate) is small, only 0.0056, which indicates that the ratio fluctuates less between regions and shows a relatively stable level.
+
+\begin{center}
+\textbf{Table 4: Standard Deviation of each Numerical Variables}
+\end{center}
+```{r,echo=FALSE,message=FALSE,out.width="80%"}
+# Calculate Standard Deviation of each Numerical Variables
+d1 = df_region %>% 
+  summarise(SD_Est.val_land = sqrt(mean((est_value_land-mean(est_value_land))^2)),
+            SD_Total_area = sqrt(mean((total_area-mean(total_area))^2)),
+            SD_Area_rented = sqrt(mean((area_rented-mean(area_rented))^2)),
+            SD_Est.rental_rate = sqrt(mean((est_rental_rate-mean(est_rental_rate))^2)),
+            SD_Ratio_of_rental_rate = sqrt(mean((ratio_rate-mean(ratio_rate))^2)))
+kable(d1)
+```
+
+# 3. Background About The Data
+
+Land values and farmland rents are receiving increased attention in regions such as Ontario as urban sprawl and agricultural structures change. Land is not only a core resource for agricultural production, but also a key reference for investment, policy development and regional planning. To better understand the dynamics of the agricultural land market, the Canadian Census of Agriculture conducts a systematic survey of agricultural production, land use and economic indicators across the country every five years.
+
+The data used in this study comes from the Ontario Open Data platform entitled "Estimated value and rental rate of farmland by county and township". The data covers land values, rental rates and acreage of farmland by region in Ontario for the period 1991-2021 and is aggregated by geographic unit (e.g. county, township and region) to provide a high degree of spatial and temporal consistency and statistical authority.
+
+Focusing on the five major geographic regions of Ontario (South, West, East, Central and North), this project aims to explore the drivers of land values and their trends over time by combining statistical modelling and visualisation tools.
+
+
+# 4. Research Question
+
+In this study, est_value_land (land valuation) is used as the response variable, 
+and multiple regression, bootstrap and visualisation methods are used to analyse 
+its relationship with the area of arable land, the level of rents and the ratio 
+of returns, and to compare them under different regions and time scales, to 
+reveal the structural patterns behind the agricultural land market.
+
+# 5. Trends in land value over time and geography
+## 5.1 Trends in land values over time
+\begin{center}
+\textbf{Graph 1: Trends in land values over time}
+\end{center}
+```{r,echo=FALSE,,out.width="90%",fig.align='center'}
+ggplot(df_region, aes(y = est_value_land)) +
+  geom_boxplot(aes(fill = factor(Year)),alpha=0.5) +
+  labs(
+    title = "Distribution of Land Value by Year",
+    y = "Estimated Land Value ($)",
+    fill = "Year"
+  )
+
+```
+This boxplot illustrates the changes in estimated land value across different years. 
+From the trend of the median line in the graph, Land values have generally increased
+over time, with particularly rapid growth in 2016 and 2021. 
+In the earlier years (1991-2001), land values were more concentrated, as shown 
+by smaller boxes, suggesting lower variability.
+In later years (2006-2021), the range of land values expanded (taller boxes and 
+longer whiskers), indicating a widening gap in land value distribution, possibly 
+due to urban development or market fluctuations.
+
+## 5.2 Trends in land values over geography
+\begin{center}
+\textbf{Graph 2: Trends in land values over geography}
+\end{center}
+```{r,echo=FALSE,out.width="90%",fig.align='center'}
+ggplot(df_region, aes(y = est_value_land)) +
+  geom_boxplot(aes(fill = factor(Geography)),alpha=0.5) +
+  labs(
+    title = "Distribution of Land Value by Geography",
+    y = "Estimated Land Value ($)",
+    fill = "Geography"
+  )
+```
+This boxplot illustrates Land value across different geographic regions in Ontario.
+Southern and Western Ontario Regions have the highest median land values and also 
+show a wide range of land values (large interquartile ranges), suggesting more 
+variability and possibly high-value outliers.
+Northern Ontario Region shows the lowest overall land values, with a much smaller 
+interquartile range, indicating land values are consistently low in that region.
+Central and Eastern Ontario Regions fall in between, but Central Ontario appears 
+to have a slightly higher median than Eastern Ontario.
+
+
+# 6. Model
+## 6.1 Check the Multicollinearity
+We use correlation plots to explore linear correlations between variables, primarily to check for potential multicollinearity problems and to select appropriate independent variables for the regression model.
+
+Graph 1 shows the relationship between the four variables total_area, area_rented, est_rental_rate, and ratio_rate. As can be seen from the figure:
+
+-The correlation coefficient of total_area and area_rented is 1.00, indicating that the two are highly coincident with little information difference and may be heavily multicollinearity.
+-The correlation coefficient between total_area and est_rental_rate is 0.58, showing a medium positive correlation.
+-The correlation coefficient between est_rental_rate and ratio_rate is 0.34, and the relationship is weak.
+
+Conclusions: Since total_area and area_rented are almost completely linearly correlated, it is recommended to keep only one of these variables in the regression model to avoid the effects of multicollinearity on the model estimation.
+\begin{center}
+\textbf{Graph 3: Correlation Plot of Variables}
+\end{center}
+```{r,echo=FALSE, message=FALSE,out.width="60%",fig.align='center',warning=FALSE}
+#VIF
+library(corrplot)
+cor_matrix <- cbind(df_region$total_area,df_region$area_rented,df_region$est_rental_rate,df_region$ratio_rate)
+cor_matrix_clean <- cor(cor_matrix, use = "pairwise.complete.obs")
+colnames(cor_matrix_clean) <- c("total_area","area_rented","est_rental_rate","ratio_rate")
+rownames(cor_matrix_clean) <- c("total_area","area_rented","est_rental_rate","ratio_rate")
+corrplot(cor_matrix_clean, method = "color", type = "upper",addCoef.col = "black",
+         col = colorRampPalette(c("red", "white", "blue"))(200),
+         tl.col = "black", tl.srt = 45, number.cex = 0.8)
+```
+
+## 6.2 Construction of Linear Regression Model
+In order to avoid the influence of multicollinearity on model stability and explanatory power, we deleted area_rented which are highly correlated with other variables according to the results of correlation analysis. Then, based on the training set data (i.e. group_ind == "train"), we fit a multiple linear regression model fit1:**est_value_land = Geography + Year+total_area + est_rental_rate + ratio_rate**, whose response variable is est_value_land. The independent variables include Geography, Year, total_area, est_rental_rate and ratio_rate.
+```{r,echo=FALSE}
+#delete high correlation variable to avoid multicollinearity
+fit1 = lm(est_value_land~Geography+Year+total_area+
+         est_rental_rate+ratio_rate, data=df_region,na.action = na.omit)
+summary(fit1)
+```
+## 6.3 Interpretation of the regression parameters and explanation
+- **Intercept**: The intercept represents the estimated unit land value in the 
+base group — Central Ontario Region in the base year 1991, with all other covariates 
+set to zero. The estimate is approximately $3,186.
+
+- **Geography** *(compare with base region "Central Ontario Region")*:  All 
+regions had lower unit land valuations than that in base region "Central Ontario Region".
+However, the **Southern Ontario Region** is the only region to show a statistically 
+significant difference, its unit land valuation is significantly lower than that 
+of the base region "Central Ontario Region", indicating that there may be 
+structural factors of low land price in this area.
+
+- **Year** *(compare with base year "1991")*: Compared with the base year “1991”, 
+the unit land valuation of each year showed a certain fluctuation trend in the model, 
+increasing in 2011 and 2021 respectively, and decreasing in the remaining years, 
+but no valuation difference in any year reached the level of statistical significance.
+This suggests that, after controlling for other factors (e.g. region, rents, etc.),
+the time variable has a **weak influence** in explaining the valuation of unit land,
+and although some years have slightly higher or lower valuations than reference 
+years, this variation may reflect more **natural year-to-year fluctuations** 
+than systematic trends.
+
+- **total_area**: Keep other variables constant, for each additional acre of 
+total land area, average valuation is expected to increase by about $0.0018. 
+The regression coefficient for total land area is positive but not statistically significant.
+
+- **est_rental_rate**: Keep other variables constant, a rent increase per unit corresponds to an average valuation increase of about $43.2. Unit rent (est_rental_rate) is the **most significant** influencing factor. The model results show that there is a strong positive relationship between unit rent and unit land valuation, which is statistically significant. This means that under the condition of controlling for region, year and other variables, the higher the rent, the higher the unit land valuation, which is in line with the economic logic of **"rent capitalization"** in the land market.
+
+- **ratio_rate**: Keep other variables constant, for every 1 unit increase in the 
+unit rental ratio, the corresponding unit valuation will decrease by about $17,580 
+on average. The sign is negative, which is unexpected, and may be due to multicollinearity,
+noisy measurement, or a mis-specified functional form.
+
+## Explaination
+The multiple linear regression model suggests that there is a statistically significant
+relationship between the estimated unit land value and several explanatory variables, 
+including year, rental rate, and other covariates. The regression model fits the 
+data very well, as evidenced by the coefficient of determination (R-squared) of 0.9664, 
+__indicating that approximately 96.6% of the variation in unit land value is explained 
+by the predictors in the model.__
+
+The p-value for the overall model is extremely small(p=1.743e-12),suggesting that 
+the model as a whole is highly significant.
+
+__The variable est_rental_rate is the strongest and most statistically significant predictor (p<0.001),
+showing a strong positive association with land value.__ This supports the economic theory of 
+rent capitalization, where higher rents lead to higher land valuation.
+
+
+# 7. Bootstrapping in regression
+## Calculate bootstrap confidence interval for parameter of est_rental_rate
+We used bootstrapping to estimate the parameter of Estimated average rental price
+and calculate its confidence interval.
+
+To perform the bootstrapping, we sample our regression model with replacement, each
+time calculating the parameter of Estimated average rental price. Then we calculate
+the average of these parameter and estimate the 95% confidence interval:
+```{r,echo=FALSE}
+set.seed(57)
+boot_fcn=function(){
+  boot.d=df_region %>%sample_n(nrow(df_region),replace = T)
+  m=lm(est_value_land~Geography+Year+total_area+
+         est_rental_rate+ratio_rate, data=boot.d,na.action = na.omit)
+  s=coef(m)[length(coef(m))-1]
+  return(s)
+}
+output=replicate(1000,boot_fcn())
+#CI
+CI = quantile(output,c(0.025,0.975),na.rm = T)
+cat("95% confidence interval:","(",CI[1],",",CI[2],")","\n")
+```
+Our 95% confidence interval for parameter of Estimated average rental price is
+( 18.55659 , 89.23963 ), indicating that there are 95% confidence that parameter of
+Estimated average rental price falls in this range. This means we can reject the 
+hypothesis: parameter = 0, and __suggesting that there is a significant relationship
+between Estimated Land Value and Estimated average rental price.__
+
+\begin{center}
+\textbf{Graph 5: Relationship between Estimated Land Value and Estimated average rental price}
+\end{center}
+```{r,echo=FALSE,message=FALSE}
+ggplot(df_region,aes(x=est_rental_rate,y=est_value_land))+geom_point()+
+  geom_smooth(method = "lm",se=T)
+```
+
+# 8.Hypothesis Test
+## Land Value in between the earlier years (1991-2001) and later years (2006-2021)
+
+We want to determine that if there is a significance difference of Land Value between
+1991-2001 and later year (2006-2021).
+
+## Hypothesis:
+* __$H_0$: The average of land value in earlier years($\mu_E$) is equivalence to the average 
+of land value in later years($\mu_L$). i.e., $\mu_E = \mu_L$ or $\mu_E - \mu_L = 0$__
+* __$H_1$: The average of land value in earlier years($\mu_E$) is not equivalence to the average 
+of land value in later years($\mu_L$). i.e., $\mu_E \ne \mu_L$ or $\mu_E - \mu_L \ne 0$__
+
+We found that the dataset does not follow a normal distribution, so instead of 
+using a parametric test (such as a t-test), we apply a permutation test to 
+evaluate whether there is a significant difference in estimated land value 
+between two time periods.
+We divide the data into two groups based on the Year variable:
+Group E: Data from the years 1991, 1996, and 2001
+Group L: Data from the years 2006,2011,2016, and 2021
+
+We then calculate the observed difference in the mean estimated land value 
+between these two groups. To test whether the $H_0$ is true, we sample the group
+id(i.e. E,L) randomly and recalculate the mean difference of sampled groups. We
+repeat the process 100,000 times to build a reference distribution of mean 
+differences under the null hypothesis and calculate its p-value as the proportion
+of permutations where the absolute difference is greater than or equal to the 
+observed difference.
+
+```{r,echo=FALSE}
+#permutation test
+df1 = df_region %>% mutate(year_level=case_when(Year %in% c("1991","1996","2001")~"E",
+                                                TRUE ~ "L"))
+obs.diff = mean(df1$est_value_land[df1$year_level=="E"]) - mean(df1$est_value_land[df1$year_level=="L"])
+set.seed(1234)
+perm.fcn=function(){
+  s=sample(df1$year_level)
+  diff = mean(df1$est_value_land[s == "E"]) -
+         mean(df1$est_value_land[s == "L"])
+  return(diff)
+}
+
+perm.diff=replicate(100000,perm.fcn())
+
+cat("p-value is",mean(abs(perm.diff) >= abs(obs.diff)))
+```
+The p-value result is 0.00057 which is much less than our significance level 0.05,
+indicating that we should reject our null hypothesis$H_0$. Therefore, we can conclude 
+that there is a significance difference in Land Value in between the earlier 
+years (1991-2001) and later years (2006-2021).
+
+# 9. Cross Validation
+
+For cross-validation, we assign each observation in the original data set to the training set (train) or the test set (test) by random sampling, in which the training set accounts for 60% and the test set accounts for 40%. This grouping is implemented through the sample() function, and a variable named group_ind is generated to mark the group to which each observation belongs. The training set will be used to fit the model, while the test set will be used to evaluate the model's predictive performance on unseen data. Table 5 shows the division of some observations as an example of the cross-validation process.
+```{r,echo=FALSE}
+# random sampling for training set and test set by 6:4
+set.seed(57)
+df_region=df_region %>% mutate(group_ind=sample(c("train","test"),
+size=nrow(df_region),prob=c(0.6,0.4),replace = T))
+```
+
+```{r,echo=FALSE}
+d2 = df_region %>% select(Geography,Year,group_ind) %>% slice(1:7)
+kable(d2)
+```
+\begin{center}
+\textbf{Table 5: Training Set and Test Set}
+\end{center}
+```{r,echo=FALSE}
+m1=lm(est_value_land~Geography+Year+total_area+
+      est_rental_rate+ratio_rate, data=df_region %>% filter(group_ind=="train"),
+      na.action = na.omit)
+y.h_train=predict(m1)
+mse_train=mean((df_region$est_value_land[df_region$group_ind=="train"]-y.h_train)^2)
+
+m2=lm(est_value_land~Geography+Year+total_area+
+      est_rental_rate+ratio_rate, data=df_region %>% filter(group_ind=="test"),
+      na.action = na.omit)
+y.h_test=predict(m2)
+mse_test=mean((df_region$est_value_land[df_region$group_ind=="test"]-y.h_test)^2)
+
+cat("MSE of training set is:", mse_train,"\n")
+cat("MSE of testing set is:", mse_test,"\n")
+```
+The Mean Squared Error (MSE) on the testing set is slightly lower than that on the training set, 
+which is somewhat unusual but still acceptable. This indicates that the model generalizes 
+very well to unseen data and there is no evidence of overfitting. In fact, 
+the slightly lower test error may be due to random variation from the train/test split.
+
+# 10. Summary of Research
+In this study, public data on agricultural land in Ontario from 1991 to 2021 were used to systematically analyze the changing trend of agricultural land valuation and its influencing factors. Through data cleaning and variable conversion, we focused on five major geographic regions, and selected key variables such as unit land valuation, rent, land area, and rent-to-income ratio for modeling and statistical inference. Based on our empirical analysis and model results, the main findings and conclusions of this study are as follows:
+
+- Agricultural land unit valuations in Ontario were on an overall **upward trend** from 1991 to 2021, with a particular acceleration after **2011**.
+- **Southern Ontario Region** had significantly lower land value estimates than the base region "Central Ontario Region" and was the only region with statistical significance by geographic classification.
+- Among all explanatory variables, **unit rent (est_rental_rate)** has the most significant and robust impact on unit land valuation, showing a strong positive correlation.
+- Although the variable **Year** reflects a certain time trend, its marginal effect on unit valuation is not statistically significant after controlling for other variables.
+- The direction of regression coefficients of the two continuous variables is reasonable, but the explanatory power is **limited** in the sample range.
+- **Bootstrapping** verified the stability of confidence interval of rental coefficient, which further enhanced the reliability of model interpretation.
+- The results of **Permutation test** showed that the overall land valuation in 2006 and later was **significantly higher** than that in earlier years, supporting the long-term upward trend judgment.
+- **Cross-validation** shows that the model has good fit on both the training set and the test set, no overfitting phenomenon, and the prediction ability is relatively stable.
+
+Moreover, we carried out visualization and prediction evaluation of the model, and found that most of the predicted values were relatively close to the actual values, only in the high estimation range there was a certain deviation, and the model as a whole was suitable for explaining the regional land valuation difference and its change trend.
+
+In Conclusion, the results of this study reveal that the valuation of agricultural land in Ontario is most significantly affected by rent, and regional differences and annual changes also have considerable explanatory power in some scenarios. These conclusions can provide data support for governments, agricultural land investors and policy makers to optimize agricultural land allocation, formulate reasonable rental price strategies and predict future market trends.
+\newpage
+
+# 11. Appendix
+```{r,eval=FALSE}
+#loadind library
+library(readxl)
+library(tidyverse)
+library(dplyr)
+library(tibble)
+library(ggplot2)
+
+# 1. data processing
+df <- read.csv("C:/Users/Liu Ailing/Desktop/utsc/thrid year/staa57/new_data_set.csv")
+
+df_region = df %>% filter(Geography %in% c("Southern Ontario Region",
+                                           "Western Ontario Region",
+                                           "Eastern Ontario Region",
+                                           "Central Ontario Region",
+                                           "Northern Ontario Region"))
+# set the variable as correct type
+categorical_vars <- c("Geography","Year")
+df_region[categorical_vars] <- lapply(df_region[categorical_vars], as.factor)
+numerical_vars <- c("est_value_land","total_area","area_rented","est_rental_rate",
+                    "ratio_rate")
+df_region[numerical_vars] <- lapply(df_region[numerical_vars],as.numeric)
+# 2. Description of the variables
+# Table 1: The head of data set
+kable(head(df_region))
+
+#Table 2: The levels of Categorical Variables
+d_G <- df_region %>%
+  count(Geography, name = "N_G") %>%
+  mutate(row_id = row_number())
+
+d_Y <- df_region %>%
+  count(Year, name = "N_Y") %>%
+  mutate(row_id = row_number())
+
+d_combined <- full_join(d_G, d_Y, by = "row_id") %>%
+  select(-row_id)
+
+d_combined_clean <- d_combined %>%
+  mutate(N_G = ifelse(is.na(N_G), "", N_G),
+    Geography = ifelse(is.na(Geography), "", as.character(Geography)),
+    Year = ifelse(is.na(Year), "", as.character(Year))
+  )
+
+
+
+kable(d_combined_clean)
+# Table 3:  Mean of each Numerical Variables
+# Calculate Mean of each Numerical Variables
+d = df_region %>% 
+  summarise(Mean_Est.val_land = mean(est_value_land),
+            Mean_Total_area = mean(total_area),
+            Mean_Area_rented = mean(area_rented),
+            Mean_Est.rental_rate = mean(est_rental_rate),
+            Mean_Ratio_of_rental_rate = mean(ratio_rate))
+
+kable(d)
+#Table 4: Standard Deviation of each Numerical Variables
+# Calculate Standard Deviation of each Numerical Variables
+d1 = df_region %>% 
+  summarise(SD_Est.val_land = sqrt(mean((est_value_land-mean(est_value_land))^2)),
+            SD_Total_area = sqrt(mean((total_area-mean(total_area))^2)),
+            SD_Area_rented = sqrt(mean((area_rented-mean(area_rented))^2)),
+            SD_Est.rental_rate = sqrt(mean((est_rental_rate-mean(est_rental_rate))^2)),
+            SD_Ratio_of_rental_rate = sqrt(mean((ratio_rate-mean(ratio_rate))^2)))
+kable(d1)
+
+# 5. Trends in land value over time and geography
+## 5.1 Trends in land values over time
+
+#Graph 1: Trends in land values over time}
+ggplot(df_region, aes(y = est_value_land)) +
+  geom_boxplot(aes(fill = factor(Year)),alpha=0.5) +
+  labs(
+    title = "Distribution of Land Value by Year",
+    y = "Estimated Land Value ($)",
+    fill = "Year"
+  )
+
+## 5.2 Trends in land values over geography
+#Graph 2: Trends in land values over geography}
+ggplot(df_region, aes(y = est_value_land)) +
+  geom_boxplot(aes(fill = factor(Geography)),alpha=0.5) +
+  labs(
+    title = "Distribution of Land Value by Geography",
+    y = "Estimated Land Value ($)",
+    fill = "Geography"
+  )
+
+# 6. Model
+## 6.1 Check the Multicollinearity
+#Graph 3: Correlation Plot of Variables
+library(corrplot)
+cor_matrix <- cbind(df_region$total_area,df_region$area_rented,df_region$est_rental_rate,df_region$ratio_rate)
+cor_matrix_clean <- cor(cor_matrix, use = "pairwise.complete.obs")
+colnames(cor_matrix_clean) <- c("total_area","area_rented","est_rental_rate","ratio_rate")
+rownames(cor_matrix_clean) <- c("total_area","area_rented","est_rental_rate","ratio_rate")
+corrplot(cor_matrix_clean, method = "color", type = "upper",addCoef.col = "black",
+         col = colorRampPalette(c("red", "white", "blue"))(200),
+         tl.col = "black", tl.srt = 45, number.cex = 0.8)
+
+## 6.2 Construction of Linear Regression Model
+#delete high correlation variable to avoid multicollinearity
+fit1 = lm(est_value_land~Geography+Year+total_area+
+         est_rental_rate+ratio_rate, data=df_region,na.action = na.omit)
+summary(fit1)
+
+# 7. Bootstrapping in regression
+## calculate bootstrap confidence interval for parameter of est_rental_rate
+set.seed(57)
+boot_fcn=function(){
+  boot.d=df_region %>%sample_n(nrow(df_region),replace = T)
+  m=lm(est_value_land~Geography+Year+total_area+
+         est_rental_rate+ratio_rate, data=boot.d,na.action = na.omit)
+  s=coef(m)[length(coef(m))-1]
+  return(s)
+}
+output=replicate(1000,boot_fcn())
+#CI
+CI = quantile(output,c(0.025,0.975),na.rm = T)
+cat("95% confidence interval:","(",CI[1],",",CI[2],")","\n")
+
+#Graph 5: Relationship between Estimated Land Value and Estimated average rental price}
+ggplot(df_region,aes(x=est_rental_rate,y=est_value_land))+geom_point()+
+  geom_smooth(method = "lm",se=T)
+
+# 8.Hypothesis Test
+## Land Value in between the earlier years (1991-2001) and later years (2006-2021)
+#permutation test
+df1 = df_region %>% mutate(year_level=case_when(Year %in% c("1991","1996","2001")~"E",
+                                                TRUE ~ "L"))
+obs.diff = mean(df1$est_value_land[df1$year_level=="E"]) - mean(df1$est_value_land[df1$year_level=="L"])
+set.seed(1234)
+perm.fcn=function(){
+  s=sample(df1$year_level)
+  diff = mean(df1$est_value_land[s == "E"]) -
+         mean(df1$est_value_land[s == "L"])
+  return(diff)
+}
+
+perm.diff=replicate(100000,perm.fcn())
+
+cat("p-value is",mean(abs(perm.diff) >= abs(obs.diff)))
+
+# 9. Cross Validation
+# random sampling for training set and test set by 6:4
+set.seed(57)
+df_region=df_region %>% mutate(group_ind=sample(c("train","test"),
+size=nrow(df_region),prob=c(0.6,0.4),replace = T))
+
+#Table 5: Training Set and Test Set
+d2 = df_region %>% select(Geography,Year,group_ind) %>% slice(1:7)
+kable(d2)
+#compare the mse between training set and testing set
+m1=lm(est_value_land~Geography+Year+total_area+
+      est_rental_rate+ratio_rate, data=df_region %>% filter(group_ind=="train"),
+      na.action = na.omit)
+y.h_train=predict(m1)
+mse_train=mean((df_region$est_value_land[df_region$group_ind=="train"]-y.h_train)^2)
+
+m2=lm(est_value_land~Geography+Year+total_area+
+      est_rental_rate+ratio_rate, data=df_region %>% filter(group_ind=="test"),
+      na.action = na.omit)
+y.h_test=predict(m2)
+mse_test=mean((df_region$est_value_land[df_region$group_ind=="test"]-y.h_test)^2)
+
+cat("MSE of training set is:", mse_train,"\n")
+cat("MSE of testing set is:", mse_test,"\n")
+```
+
+
+
+
